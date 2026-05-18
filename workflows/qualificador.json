@@ -1,0 +1,165 @@
+{
+  "name": "Qualificador de Leads com IA",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "qualificador-leads",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "node-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body ?? $input.first().json;\n\nreturn [{\n  json: {\n    nome: body.nome ?? body.name ?? 'Não informado',\n    email: body.email ?? 'Não informado',\n    empresa: body.empresa ?? body.company ?? 'Não informado',\n    cargo: body.cargo ?? body.role ?? 'Não informado',\n    tamanho_empresa: body.tamanho_empresa ?? body.company_size ?? 'Não informado',\n    necessidade: body.necessidade ?? body.message ?? 'Não informado',\n    orcamento: body.orcamento ?? body.budget ?? 'Não informado',\n    recebido_em: new Date().toLocaleString('pt-BR', { timeZone: 'America/Recife' })\n  }\n}];"
+      },
+      "id": "node-format",
+      "name": "Formatar dados recebidos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={{ $env.GEMINI_API_KEY }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"contents\": [{\n    \"parts\": [{\n      \"text\": \"Você é especialista em qualificação de leads B2B.\\n\\nAnalise o lead abaixo e retorne APENAS um JSON válido, sem markdown, sem texto extra.\\n\\nEstrutura obrigatória:\\n{\\\"classificacao\\\": \\\"QUENTE\\\", \\\"score\\\": 85, \\\"justificativa\\\": \\\"explicação em 2-3 frases\\\", \\\"proxima_acao\\\": \\\"ação recomendada\\\", \\\"urgencia\\\": \\\"ALTA\\\"}\\n\\nClassificação:\\n- QUENTE: orçamento acima de R$2.000 + cargo de decisão (CEO/diretor/gerente) + necessidade clara\\n- MORNO: orçamento médio ou cargo intermediário ou necessidade definida\\n- FRIO: orçamento baixo + cargo operacional + necessidade vaga\\n\\nUrgência: ALTA (QUENTE) | MEDIA (MORNO) | BAIXA (FRIO)\\n\\nDados do lead:\\nNome: {{ $json.nome }}\\nEmpresa: {{ $json.empresa }}\\nCargo: {{ $json.cargo }}\\nTamanho da empresa: {{ $json.tamanho_empresa }}\\nNecessidade: {{ $json.necessidade }}\\nOrçamento: {{ $json.orcamento }}\"\n    }]\n  }]\n}",
+        "options": {}
+      },
+      "id": "node-gemini",
+      "name": "Classificar com Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const texto = $input.first().json.candidates[0].content.parts[0].text;\n\n// Remove markdown se Gemini insistir em colocar\nconst limpo = texto.replace(/```json|```/g, '').trim();\n\nlet analise;\ntry {\n  analise = JSON.parse(limpo);\n} catch (e) {\n  analise = {\n    classificacao: 'ERRO',\n    score: 0,\n    justificativa: 'Falha ao parsear resposta da IA: ' + texto,\n    proxima_acao: 'Verificar manualmente',\n    urgencia: 'MEDIA'\n  };\n}\n\nconst lead = $('Formatar dados recebidos').first().json;\n\nreturn [{\n  json: {\n    ...lead,\n    ...analise\n  }\n}];"
+      },
+      "id": "node-parse",
+      "name": "Parsear resposta da IA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [910, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "list",
+          "value": ""
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Data": "={{ $json.recebido_em }}",
+            "Nome": "={{ $json.nome }}",
+            "Email": "={{ $json.email }}",
+            "Empresa": "={{ $json.empresa }}",
+            "Cargo": "={{ $json.cargo }}",
+            "Orçamento": "={{ $json.orcamento }}",
+            "Necessidade": "={{ $json.necessidade }}",
+            "Classificação": "={{ $json.classificacao }}",
+            "Score": "={{ $json.score }}",
+            "Justificativa": "={{ $json.justificativa }}",
+            "Próxima Ação": "={{ $json.proxima_acao }}",
+            "Urgência": "={{ $json.urgencia }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "node-sheets",
+      "name": "Salvar no Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1130, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.classificacao }}",
+              "operation": "equals",
+              "value2": "QUENTE"
+            }
+          ]
+        }
+      },
+      "id": "node-if",
+      "name": "É lead QUENTE?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1350, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.NOTIFY_FROM_EMAIL }}",
+        "toEmail": "={{ $env.NOTIFY_TO_EMAIL }}",
+        "subject": "=🔥 Lead QUENTE: {{ $json.nome }} — Score {{ $json.score }}/100",
+        "emailType": "html",
+        "message": "=<h2>🔥 Novo lead quente identificado!</h2>\n\n<table style=\"border-collapse: collapse; width: 100%; font-family: sans-serif; font-size: 14px;\">\n  <tr><td style=\"padding: 8px; font-weight: bold; background: #f5f5f5; width: 140px;\">Nome</td><td style=\"padding: 8px;\">{{ $json.nome }}</td></tr>\n  <tr><td style=\"padding: 8px; font-weight: bold; background: #f5f5f5;\">Email</td><td style=\"padding: 8px;\">{{ $json.email }}</td></tr>\n  <tr><td style=\"padding: 8px; font-weight: bold; background: #f5f5f5;\">Empresa</td><td style=\"padding: 8px;\">{{ $json.empresa }}</td></tr>\n  <tr><td style=\"padding: 8px; font-weight: bold; background: #f5f5f5;\">Cargo</td><td style=\"padding: 8px;\">{{ $json.cargo }}</td></tr>\n  <tr><td style=\"padding: 8px; font-weight: bold; background: #f5f5f5;\">Orçamento</td><td style=\"padding: 8px;\">{{ $json.orcamento }}</td></tr>\n  <tr><td style=\"padding: 8px; font-weight: bold; background: #f5f5f5;\">Necessidade</td><td style=\"padding: 8px;\">{{ $json.necessidade }}</td></tr>\n</table>\n\n<h3 style=\"color: #4f46e5; margin-top: 24px;\">Análise da IA</h3>\n<p><strong>Score:</strong> {{ $json.score }}/100</p>\n<p><strong>Justificativa:</strong> {{ $json.justificativa }}</p>\n<p><strong>Próxima ação:</strong> {{ $json.proxima_acao }}</p>\n<p><strong>Urgência:</strong> {{ $json.urgencia }}</p>\n\n<hr style=\"margin-top: 24px;\">\n<p style=\"font-size: 12px; color: #888;\">Qualificado automaticamente em {{ $json.recebido_em }}</p>",
+        "options": {}
+      },
+      "id": "node-email",
+      "name": "Enviar alerta de lead quente",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1570, 200]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [{ "node": "Formatar dados recebidos", "type": "main", "index": 0 }]
+      ]
+    },
+    "Formatar dados recebidos": {
+      "main": [
+        [{ "node": "Classificar com Gemini", "type": "main", "index": 0 }]
+      ]
+    },
+    "Classificar com Gemini": {
+      "main": [
+        [{ "node": "Parsear resposta da IA", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parsear resposta da IA": {
+      "main": [
+        [{ "node": "Salvar no Google Sheets", "type": "main", "index": 0 }]
+      ]
+    },
+    "Salvar no Google Sheets": {
+      "main": [
+        [{ "node": "É lead QUENTE?", "type": "main", "index": 0 }]
+      ]
+    },
+    "É lead QUENTE?": {
+      "main": [
+        [{ "node": "Enviar alerta de lead quente", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

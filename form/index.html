@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fale com a gente</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: sans-serif; max-width: 480px; margin: 60px auto; padding: 0 1rem; color: #1a1a1a; }
+    h2 { margin-bottom: 1.5rem; }
+    label { font-weight: 500; font-size: 14px; display: block; margin-bottom: 4px; }
+    input, select, textarea {
+      width: 100%; padding: 10px; margin-bottom: 16px;
+      border: 1px solid #ccc; border-radius: 6px; font-size: 14px;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none; border-color: #4f46e5;
+    }
+    button {
+      background: #4f46e5; color: white; padding: 12px 24px;
+      border: none; border-radius: 6px; cursor: pointer;
+      width: 100%; font-size: 16px; font-weight: 600;
+    }
+    button:hover { background: #4338ca; }
+    button:disabled { background: #9ca3af; cursor: not-allowed; }
+    .success { text-align: center; padding: 2rem 0; }
+    .success p { font-size: 18px; color: #16a34a; }
+  </style>
+</head>
+<body>
+  <h2>Quero saber mais</h2>
+  <form id="leadForm">
+    <label>Nome completo *</label>
+    <input type="text" name="nome" required placeholder="João Silva">
+
+    <label>Email *</label>
+    <input type="email" name="email" required placeholder="joao@empresa.com.br">
+
+    <label>Empresa</label>
+    <input type="text" name="empresa" placeholder="Tech Solutions Ltda">
+
+    <label>Cargo</label>
+    <input type="text" name="cargo" placeholder="CEO, Gerente, Diretor...">
+
+    <label>Quantos funcionários tem sua empresa?</label>
+    <select name="tamanho_empresa">
+      <option value="1-10">1 a 10</option>
+      <option value="11-50">11 a 50</option>
+      <option value="51-200">51 a 200</option>
+      <option value="200+">Mais de 200</option>
+    </select>
+
+    <label>Qual sua principal necessidade? *</label>
+    <textarea name="necessidade" rows="4" required placeholder="Descreva brevemente o que precisa..."></textarea>
+
+    <label>Qual é seu orçamento mensal para essa solução?</label>
+    <select name="orcamento">
+      <option value="menos-500">Menos de R$500</option>
+      <option value="500-2000">R$500 a R$2.000</option>
+      <option value="2000-5000">R$2.000 a R$5.000</option>
+      <option value="5000+">Mais de R$5.000</option>
+    </select>
+
+    <button type="submit" id="submitBtn">Enviar</button>
+  </form>
+
+  <script>
+    // Substitua pela URL do webhook gerado no n8n (Passo 3)
+    const WEBHOOK_URL = 'http://localhost:5678/webhook/qualificador-leads';
+
+    document.getElementById('leadForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      btn.textContent = 'Enviando...';
+
+      const data = Object.fromEntries(new FormData(e.target));
+
+      try {
+        await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        e.target.outerHTML = `
+          <div class="success">
+            <p>✅ Mensagem recebida!</p>
+            <p style="color:#555;font-size:14px;margin-top:8px">Entraremos em contato em breve.</p>
+          </div>`;
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Enviar';
+        alert('Erro ao enviar. Tente novamente.');
+      }
+    });
+  </script>
+</body>
+</html>
